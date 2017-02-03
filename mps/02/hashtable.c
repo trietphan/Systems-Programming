@@ -73,7 +73,18 @@ void ht_iter(hashtable_t *ht, int (*f)(char *, void *)) {
 
 void free_hashtable(hashtable_t *ht) {
   unsigned long i;
-  for (i=0, i<ht->size; i++)
+  for (i=0; i<ht->size; i++) {
+    bucket_t *b = ht->buckets[i];
+
+    while (b) {
+      bucket_t *temp = b;
+      b = b->next;
+      free(temp->val);
+      free(temp);
+    }
+    free(ht->buckets[i]);
+  }
+  free(ht->buckets);
   free(ht);
 }
 
@@ -98,5 +109,38 @@ void  ht_del(hashtable_t *ht, char *key) {
 }
 
 void  ht_rehash(hashtable_t *ht, unsigned long newsize) {
+  unsigned long oldsize = ht->size;
+  printf("Hello\n");
+  bucket_t **oldbucket = ht->buckets;
 
+  hashtable_t *newht = make_hashtable(newsize);
+
+  unsigned long i;
+  for (i=0; i<oldsize; i++) {
+    bucket_t *b = oldbucket[i];
+    while (b) {
+      ht_put(newht, b->key, b->val);
+      b = b->next;
+    }
+  }
+  // free_hashtable(ht);
+
+  // for (i=0; i<oldsize; i++) {
+  //   bucket_t *b = oldbucket[i];
+
+  //   while (b) {
+  //           printf("Hello1\n");
+
+  //     bucket_t *temp = b;
+  //     b = b->next;
+  //     free(temp->val);
+  //     free(temp);
+
+  //   }
+  //           printf("Hello2\n");
+
+  //   // free(oldbucket[i]);
+
+  // }
+  // free(oldbucket);
 }
