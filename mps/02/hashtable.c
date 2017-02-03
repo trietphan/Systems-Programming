@@ -47,6 +47,7 @@ void ht_put(hashtable_t *ht, char *key, void *val) {
 void *ht_get(hashtable_t *ht, char *key) {
   unsigned int idx = hash(key) % ht->size;
   bucket_t *b = ht->buckets[idx];
+
   while (b) {
     if (strcmp(b->key, key) == 0) {
       return b->val;
@@ -71,12 +72,31 @@ void ht_iter(hashtable_t *ht, int (*f)(char *, void *)) {
 }
 
 void free_hashtable(hashtable_t *ht) {
-  free(ht); // FIXME: must free all substructures!
+  unsigned long i;
+  for (i=0, i<ht->size; i++)
+  free(ht);
 }
 
 /* TODO */
 void  ht_del(hashtable_t *ht, char *key) {
+  unsigned int idx = hash(key) % ht->size;
+  bucket_t *b = ht->buckets[idx];
+  bucket_t *prev = NULL;
+
+  while(b) {
+    if (strcmp(b->key, key) == 0) {
+      if(prev) {
+        prev->next = b->next;
+      } else {
+        ht->buckets[idx] = b->next;
+      }
+      free(b);
+    }
+    prev = b;
+    b = b->next;
+  }
 }
 
 void  ht_rehash(hashtable_t *ht, unsigned long newsize) {
+
 }
