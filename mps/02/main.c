@@ -3,9 +3,6 @@
 #include <string.h>
 #include "hashtable.h"
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-result" 
-
 int print_iter(char *key, void *val) {
   printf("%s -> %s\n", key, (char *)val);
   return 1;
@@ -100,4 +97,3 @@ int main(int argc, char *argv[]) {
   return 0;
 }
 
-#pragma GCC diagnostic pop
