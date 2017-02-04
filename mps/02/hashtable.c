@@ -115,11 +115,10 @@ void  ht_rehash(hashtable_t *ht, unsigned long newsize) {
   newbuckets = calloc(sizeof(bucket_t *), newsize);
 
   unsigned long i;
-  for (i=0; i<newsize; i++) {
+  for (i=0; i<ht->size; i++) {
     bucket_t *b = ht->buckets[i];
 
     while (b) {
-      // printf("b\n");
       bucket_t *temp = b->next;
       unsigned long idx = hash(b->key) % newsize;
       b->next = newbuckets[idx];
