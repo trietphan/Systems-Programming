@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "hashtable.h"
+#include <stdio.h>
 
 /* Daniel J. Bernstein's "times 33" string hash function, from comp.lang.C;
    See https://groups.google.com/forum/#!topic/comp.lang.c/lSKWXiuNOAk */
@@ -108,36 +109,26 @@ void  ht_del(hashtable_t *ht, char *key) {
 }
 
 void  ht_rehash(hashtable_t *ht, unsigned long newsize) {
-  unsigned long oldsize = ht->size;
-  bucket_t **oldbucket = ht->buckets;
-
-  hashtable_t *newht = make_hashtable(newsize);
+  if (ht->size == newsize) return;
+  
+  bucket_t **newbuckets;
+  newbuckets = calloc(sizeof(bucket_t *), newsize);
 
   unsigned long i;
-  for (i=0; i<oldsize; i++) {
-    bucket_t *b = oldbucket[i];
+  for (i=0; i<newsize; i++) {
+    bucket_t *b = ht->buckets[i];
+
     while (b) {
-      ht_put(newht, b->key, b->val);
-      b = b->next;
+      // printf("b\n");
+      bucket_t *temp = b->next;
+      unsigned long idx = hash(b->key) % newsize;
+      b->next = newbuckets[idx];
+      newbuckets[idx] = b;
+      b = temp;
     }
   }
 
-  // for (i=0; i<oldsize; i++) {
-  //   bucket_t *b = oldbucket[i];
-
-  //   while (b) {
-  //           printf("Hello1\n");
-
-  //     bucket_t *temp = b;
-  //     b = b->next;
-  //     free(temp->val);
-  //     free(temp);
-
-  //   }
-  //           printf("Hello2\n");
-
-  //   // free(oldbucket[i]);
-
-  // }
-  // free(oldbucket);
+  free(ht->buckets);
+  ht->buckets = newbuckets;
+  ht->size = newsize;
 }
