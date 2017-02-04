@@ -5,6 +5,7 @@
 *.out
 *.dSYM/
 .#*
+.vscode
 
 # executables
 a.out
