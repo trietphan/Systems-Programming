@@ -80,6 +80,7 @@ void free_hashtable(hashtable_t *ht) {
     while (b) {
       bucket_t *temp = b;
       b = b->next;
+      free(temp->key);
       free(temp->val);
       free(temp);
     }
@@ -101,6 +102,8 @@ void  ht_del(hashtable_t *ht, char *key) {
       } else {
         ht->buckets[idx] = b->next;
       }
+      free(b->key);
+      free(b->val);
       free(b);
     }
     prev = b;
