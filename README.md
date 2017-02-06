@@ -5,4 +5,5 @@ sample code (some of which are used in lecture demos) and template code for
 machine problems.
 
 Name: Triet Phan
+
 Email: tphan5@hawk.iit.edu
