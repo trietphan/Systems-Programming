@@ -264,9 +264,10 @@ int builtin_cmd(char **argv)
     return 1;
   }
   else if (strcmp("quit", argv[0]) == 0) {
+    
     exit(0);
   }
-  else if ((!strcmp("fg", argv[0])) || (!strcmp("bg", argv[0]))) {
+  else if (strcmp("fg", argv[0]) == 0 || strcmp("bg", argv[0]) == 0) {
     do_bgfg(argv);
     return 1;
   }
@@ -290,7 +291,6 @@ void waitfg(pid_t pid)
 {
   while(fgpid(jobs))
     sleep(1);
-  return;
 }
 
 /*****************
