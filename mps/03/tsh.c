@@ -329,18 +329,21 @@ void sigchld_handler(int sig)
     job = getjobpid(jobs, pid);
     if (job)
     {
-      if (WIFSIGNALED(status))
-      {
-        printf("Job [%d] (%d) terminated by signal %d\n", job->jid, job->pid, WTERMSIG(status));
-      }
-      deletejob(jobs, pid);
       if (WIFSTOPPED(status))
       {
         printf("Job [%d] (%d) stopped by signal %d\n", job->jid, job->pid, WSTOPSIG(status));
         job->state = ST;
       }
-
-    } else
+      else
+      {
+        if (WIFSIGNALED(status))
+          {
+            printf("Job [%d] (%d) terminated by signal %d\n", job->jid, job->pid, WTERMSIG(status));
+          }
+        deletejob(jobs, pid);
+      }      
+    }
+    else
     {
       printf("Could not find the job!");
     }
@@ -368,7 +371,15 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig) 
 {
-  return;
+  pid_t pid = fgpid(jobs);
+  struct job_t *job;
+  
+  if (pid > 0)
+  {
+    job = getjobpid(jobs, pid);
+    kill(-pid, SIGTSTP);
+    job->state = ST;
+  }
 }
 
 /*********************
