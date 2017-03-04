@@ -319,6 +319,14 @@ void do_bgfg(char **argv)
     kill(-job->pid, SIGCONT);
     return;
   }
+  if (strcmp(argv[0], "fg") == 0) {
+    if (job->state == ST) {
+      kill(-job->pid, SIGCONT);
+    }
+    job->state = FG;
+    waitfg(job->pid);
+    return;
+  }
   return;
 }
 
