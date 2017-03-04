@@ -165,28 +165,44 @@ void eval(char *cmdline)
 {
   /* the following code demonstrates how to use parseline --- you'll 
    * want to replace most of it (at least the print statements). */
-  int i, bg;
+  int bg;
   char *argv[MAXARGS];
   pid_t pid;
+  sigset_t set;
   struct job_t *job;
 
   bg = parseline(cmdline, argv);
+
+  if (argv[0] == NULL) return;
+  
   if (!builtin_cmd(argv)) {
     // fork & exec the specific program
-    if ((pid = fork()) == 0) {
-      execvp(argv[0], argv);
-      printf("%s: Commnad not found\n", argv[0]);
-      exit(0);
-    }
-    addjob(jobs, pid, bg ? BG : FG, cmdline);
-    if (!bg) {
-      waitfg(pid);
-    }
-    else {
-      job = getjobpid(jobs, pid);
-      printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
-    }
+    sigemptyset(&set);
+    sigprocmask(SIG_BLOCK, &set, NULL);
+    sigaddset(&set, SIGINT);
+    sigaddset(&set, SIGTSTP);
+    sigaddset(&set, SIGCHLD);
     
+    if ((pid = fork()) == 0) {
+      sigprocmask(SIG_UNBLOCK, &set, NULL);
+      setpgid(0, 0);
+      if (execvp(argv[0], argv) < 0) {
+        printf("%s: Command not found.\n", argv[0]);
+        exit(-1);
+      }
+    }
+    else
+    {
+      addjob(jobs, pid, bg ? BG : FG, cmdline);
+      if (!bg) {
+        waitfg(pid);
+      }
+      else {
+        job = getjobpid(jobs, pid);
+        sigprocmask(SIG_UNBLOCK, &set, NULL);
+        printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
+      }        
+    }
   }
     
   /* } */
@@ -289,7 +305,7 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
-  while(fgpid(jobs))
+  while(fgpid(jobs) == pid)
     sleep(1);
 }
 
@@ -310,9 +326,26 @@ void sigchld_handler(int sig)
   int status;
   struct job_t *job;
   while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
-    deletejob(jobs, pid);
+    job = getjobpid(jobs, pid);
+    if (job)
+    {
+      if (WIFSIGNALED(status))
+      {
+        printf("Job [%d] (%d) terminated by signal %d\n", job->jid, job->pid, WTERMSIG(status));
+      }
+      deletejob(jobs, pid);
+      if (WIFSTOPPED(status))
+      {
+        printf("Job [%d] (%d) stopped by signal %d\n", job->jid, job->pid, WSTOPSIG(status));
+        job->state = ST;
+      }
+
+    } else
+    {
+      printf("Could not find the job!");
+    }
+
   }
-  return;
 }
 
 /* 
@@ -322,7 +355,10 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
-  return;
+  pid_t pid = fgpid(jobs);
+  if (pid > 0) {
+    kill(-pid, SIGINT);
+  }
 }
 
 /*
