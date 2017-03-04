@@ -297,6 +297,28 @@ int builtin_cmd(char **argv)
  */
 void do_bgfg(char **argv) 
 {
+  struct job_t *job;
+  int jid;
+  pid_t pid;
+
+  if (sscanf(argv[1], "%%%d", &jid)) {
+    if ((job = getjobjid(jobs, jid)) == 0) {
+      printf("%s: No such job\n", argv[1]);
+      return;
+    }
+  } else if (sscanf(argv[1], "%d", &pid)) {
+    if ((job = getjobpid(jobs, pid)) == 0) {
+      printf("(%d): No such process\n", pid);
+      return;
+    }
+  }
+  
+  if (strcmp(argv[0], "bg") == 0) {
+    printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
+    job->state = BG;
+    kill(-job->pid, SIGCONT);
+    return;
+  }
   return;
 }
 
@@ -305,8 +327,9 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
-  while(fgpid(jobs) == pid)
+  while(fgpid(jobs) == pid) {
     sleep(1);
+  }
 }
 
 /*****************
@@ -347,7 +370,6 @@ void sigchld_handler(int sig)
     {
       printf("Could not find the job!");
     }
-
   }
 }
 
