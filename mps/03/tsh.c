@@ -169,12 +169,15 @@ void eval(char *cmdline)
   char *argv[MAXARGS];
 
   bg = parseline(cmdline, argv);
-  if (bg) {
-    printf("background job requested\n");
+  if (!builtin_cmd(argv)) {
+    // fork & exec the specific program
+    
   }
-  for (i=0; argv[i] != NULL; i++) {
-    printf("argv[%d]=%s%s", i, argv[i], (argv[i+1]==NULL)?"\n":", ");
-  }
+    
+  /* } */
+  /* for (i=0; argv[i] != NULL; i++) { */
+  /*   printf("argv[%d]=%s%s", i, argv[i], (argv[i+1]==NULL)?"\n":", "); */
+  /* } */
   return;
 }
 
@@ -241,7 +244,20 @@ int parseline(const char *cmdline, char **argv)
  */
 int builtin_cmd(char **argv) 
 {
-  return 0;     /* not a builtin command */
+  if (strcmp("jobs", argv[0]) == 0) {
+    listjobs(jobs);
+    return 1;
+  }
+  else if (strcmp("quit", argv[0]) == 0) {
+    exit(0);
+  }
+  else if ((!strcmp("fg", argv[0])) || (!strcmp("bg", argv[0]))) {
+    do_bgfg(argv);
+    return 1;
+  }
+  else {
+    return 0;     /* not a builtin command */
+  }
 }
 
 /* 
