@@ -167,10 +167,25 @@ void eval(char *cmdline)
    * want to replace most of it (at least the print statements). */
   int i, bg;
   char *argv[MAXARGS];
+  pid_t pid;
+  struct job_t *job;
 
   bg = parseline(cmdline, argv);
   if (!builtin_cmd(argv)) {
     // fork & exec the specific program
+    if ((pid = fork()) == 0) {
+      execvp(argv[0], argv);
+      printf("%s: Commnad not found\n", argv[0]);
+      exit(0);
+    }
+    addjob(jobs, pid, bg ? BG : FG, cmdline);
+    if (!bg) {
+      waitfg(pid);
+    }
+    else {
+      job = getjobpid(jobs, pid);
+      printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
+    }
     
   }
     
@@ -273,6 +288,8 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
+  while(fgpid(jobs))
+    sleep(1);
   return;
 }
 
@@ -289,6 +306,12 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig) 
 {
+  pid_t pid;
+  int status;
+  struct job_t *job;
+  while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
+    deletejob(jobs, pid);
+  }
   return;
 }
 
