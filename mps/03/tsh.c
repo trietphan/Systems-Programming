@@ -367,7 +367,7 @@ void sigchld_handler(int sig)
       }
       else
       {
-        if (WIFSIGNALED(status))
+        if (WIFSIGNALED(status)) 
           {
             printf("Job [%d] (%d) terminated by signal %d\n", job->jid, job->pid, WTERMSIG(status));
           }
