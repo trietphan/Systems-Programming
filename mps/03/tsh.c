@@ -174,7 +174,7 @@ void eval(char *cmdline)
   bg = parseline(cmdline, argv);
 
   if (argv[0] == NULL) return;
-  
+
   if (!builtin_cmd(argv)) {
     // fork & exec the specific program
     sigemptyset(&set);
@@ -182,7 +182,7 @@ void eval(char *cmdline)
     sigaddset(&set, SIGINT);
     sigaddset(&set, SIGTSTP);
     sigaddset(&set, SIGCHLD);
-    
+
     if ((pid = fork()) == 0) {
       sigprocmask(SIG_UNBLOCK, &set, NULL);
       setpgid(0, 0);
@@ -192,24 +192,18 @@ void eval(char *cmdline)
       }
     }
     else
-    {
-      addjob(jobs, pid, bg ? BG : FG, cmdline);
-      if (!bg) {
-        waitfg(pid);
+      {
+        addjob(jobs, pid, bg ? BG : FG, cmdline);
+        if (!bg) {
+          waitfg(pid);
+        }
+        else {
+          job = getjobpid(jobs, pid);
+          sigprocmask(SIG_UNBLOCK, &set, NULL);
+          printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
+        }
       }
-      else {
-        job = getjobpid(jobs, pid);
-        sigprocmask(SIG_UNBLOCK, &set, NULL);
-        printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
-      }        
-    }
   }
-    
-  /* } */
-  /* for (i=0; argv[i] != NULL; i++) { */
-  /*   printf("argv[%d]=%s%s", i, argv[i], (argv[i+1]==NULL)?"\n":", "); */
-  /* } */
-  return;
 }
 
 /* 
@@ -288,7 +282,7 @@ int builtin_cmd(char **argv)
     return 1;
   }
   else {
-    return 0;     /* not a builtin command */
+    return 0;  /* not a builtin command */
   }
 }
 
@@ -301,7 +295,10 @@ void do_bgfg(char **argv)
   int jid;
   pid_t pid;
 
-  if (sscanf(argv[1], "%%%d", &jid)) {
+  if (argv[1] == 0) {
+    printf("%s command requires PID or %%jobid argument\n", argv[0]);
+    return;
+  } else if (sscanf(argv[1], "%%%d", &jid)) {
     if ((job = getjobjid(jobs, jid)) == 0) {
       printf("%s: No such job\n", argv[1]);
       return;
@@ -311,6 +308,9 @@ void do_bgfg(char **argv)
       printf("(%d): No such process\n", pid);
       return;
     }
+  } else {
+    printf("%s: argument must be a PID or %%jobid\n", argv[0]);
+    return;
   }
   
   if (strcmp(argv[0], "bg") == 0) {
