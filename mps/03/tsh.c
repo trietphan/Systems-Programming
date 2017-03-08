@@ -178,11 +178,11 @@ void eval(char *cmdline)
   if (!builtin_cmd(argv)) {
     // fork & exec the specific program
     sigemptyset(&set);
-    sigprocmask(SIG_BLOCK, &set, NULL);
+
     sigaddset(&set, SIGINT);
     sigaddset(&set, SIGTSTP);
     sigaddset(&set, SIGCHLD);
-
+    sigprocmask(SIG_BLOCK, &set, NULL);
     if ((pid = fork()) == 0) {
       sigprocmask(SIG_UNBLOCK, &set, NULL);
       setpgid(0, 0);
@@ -194,12 +194,13 @@ void eval(char *cmdline)
     else
       {
         addjob(jobs, pid, bg ? BG : FG, cmdline);
+        job = getjobpid(jobs, pid);
+        sigprocmask(SIG_UNBLOCK, &set, NULL);
+        
         if (!bg) {
           waitfg(pid);
         }
         else {
-          job = getjobpid(jobs, pid);
-          sigprocmask(SIG_UNBLOCK, &set, NULL);
           printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
         }
       }
@@ -408,7 +409,6 @@ void sigtstp_handler(int sig)
   {
     job = getjobpid(jobs, pid);
     kill(-pid, SIGTSTP);
-    job->state = ST;
   }
 }
 
