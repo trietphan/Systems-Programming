@@ -25,20 +25,20 @@ int hits = 0, misses = 0, evics = 0;
 
 void help_messages(char *argv[]);
 int cache_init(cache_t *cache, int s, int E);
-void process_each_line(long address, int b, int s, cache_t *cache);
-void read_trace_file(char *trace_name, int b, int s, cache_t *cache);
-int process_args(int argc, char *argv[], int *s, int *E, int *b, char **t);
+void process_each_line(long address, int v, int b, int s, cache_t *cache);
+void read_trace_file(char *trace_name, int v, int b, int s, cache_t *cache);
+int process_args(int argc, char *argv[], int *v, int *s, int *E, int *b, char **t);
 int update_lru(cache_t *cache, int setBits, int line_num);
 int extract_bits(long address, int start, int end);
 
 int main(int argc, char *argv[]) {
-  int s = 0, E = 0, b = 0;
+  int s = 0, E = 0, b = 0, v = 0;
   char *t = NULL;
   cache_t cache;
   
-  process_args(argc, argv, &s, &E, &b, &t);
+  process_args(argc, argv, &v, &s, &E, &b, &t);
   cache_init(&cache, s, E);
-  read_trace_file(t, b, s, &cache);
+  read_trace_file(t, v, b, s, &cache);
   printSummary(hits, misses, evics);
   return 0;
 }
@@ -92,7 +92,7 @@ int update_lru(cache_t *cache, int setBits, int line_num) {
   return 0;
 }
 
-void process_each_line(long address, int b, int s, cache_t *cache) {
+void process_each_line(long address, int v, int b, int s, cache_t *cache) {
   int setBits = extract_bits(address, b, b + s);
   int tagBits = extract_bits(address, b + s, 31);
   int i;
@@ -101,11 +101,13 @@ void process_each_line(long address, int b, int s, cache_t *cache) {
     if (cache->sets[setBits].lines[i].valid == 1 &&
         cache->sets[setBits].lines[i].tag == tagBits) {
       hits++;
+      if (v) printf("hit ");
       update_lru(cache, setBits, i);
       return;
     }
   }
   misses++;
+  if (v) printf("miss ");
   for (i = 0; i < cache->num_lines; i++) {
     if (cache->sets[setBits].lines[i].valid == 0) {
       cache->sets[setBits].lines[i].tag = tagBits;
@@ -115,8 +117,10 @@ void process_each_line(long address, int b, int s, cache_t *cache) {
     }
   }
   evics++;
+
   for (i = 0; i < cache->num_lines; i++) {
     if (cache->sets[setBits].lines[i].lru == 1) {
+      if (v) printf("evic ");
       cache->sets[setBits].lines[i].valid = 1;
       cache->sets[setBits].lines[i].tag = tagBits;
       update_lru(cache, setBits, i);
@@ -125,7 +129,7 @@ void process_each_line(long address, int b, int s, cache_t *cache) {
   }
 }
 
-void read_trace_file(char *trace_name, int b, int s, cache_t *cache) {
+void read_trace_file(char *trace_name, int v, int b, int s, cache_t *cache) {
   char buff[100];
   FILE *tn = fopen(trace_name, "r");
   if (tn == NULL) {
@@ -137,20 +141,24 @@ void read_trace_file(char *trace_name, int b, int s, cache_t *cache) {
     unsigned size = 0;
     if (buff[1] == 'M' || buff[1] == 'S' || buff[1] == 'L') {
       sscanf(buff+2, "%lx,%u", &address, &size);
-      /* printf("%c %lx,%u\n", buff[1], address, size); */
-      process_each_line(address, b, s, cache);
+      if (v) printf("%c %lx,%u ", buff[1], address, size);
+      process_each_line(address, v, b, s, cache);
     }
     if (buff[1] == 'M') {
-      process_each_line(address, b, s, cache);
+      process_each_line(address, v, b, s, cache);
     }
+    if (v) putchar('\n');
   }
   fclose(tn);
 }
 
-int process_args(int argc, char *argv[], int *s, int *E, int *b, char **t) {
+int process_args(int argc, char *argv[], int *v, int *s, int *E, int *b, char **t) {
   int opt;
   while ((opt = getopt(argc, argv, "vs:E:b:t:")) != -1) {
       switch(opt) {
+      case 'v':
+        *v = 1;
+        break;
       case 's':
         *s = atoi(optarg);
         break;
