@@ -104,19 +104,113 @@ void mm_free(void *ptr)
  */
 void *mm_realloc(void *ptr, size_t size)
 {
-  void *oldptr = ptr;
-  void *newptr;
-  size_t copySize;
+  blk_hdr_t *bp = ptr - BLK_HDR_SIZE;
+  size_t old_size = bp->size & ~1L,
+    new_size = ALIGN(size + HF_BLK_SIZE),
+    need = new_size - old_size;
 
-  newptr = mm_malloc(size);
-  if (newptr == NULL)
-    return NULL;
-  copySize = *(size_t *)((char *)oldptr - BLK_HDR_SIZE);
-  if (size < copySize)
-    copySize = size;
-  memcpy(newptr, oldptr, copySize);
-  mm_free(oldptr);
-  return newptr;
+  if (old_size > new_size) {
+    /* there's enough space */
+    return ptr;
+  } else {
+    if (bp == mem_heap_hi() - old_size + 1) {
+      /* if at the end of the heap, just grow the heap */
+      mem_sbrk(need);
+      bp->size = new_size | 1;
+      get_footer(bp)->size = new_size | 1;
+      return ptr;
+    } else {
+      /* if move to a bigger block go through free list, try to find the biggest block  */
+      blk_hdr_t *try_find_head = (blk_hdr_t *)mem_heap_lo() + NUM_SIZE, 
+        *try_find_bp;
+      for (try_find_bp = try_find_head->next;
+           try_find_bp != try_find_head && try_find_bp->size < size + HF_BLK_SIZE;
+           try_find_bp = try_find_bp->next);
+      if (try_find_bp != try_find_head) {
+
+        void *new_ptr = (void *)((char *)try_find_bp + BLK_HDR_SIZE);
+        memcpy(new_ptr, ptr, old_size - HF_BLK_SIZE);
+        add_to_list(bp);
+        remove_from_list(try_find_bp);
+        return new_ptr;
+      }
+      /* check if another free block with enough space */
+      blk_hdr_t *next_bp = (blk_hdr_t *)((char *)get_footer(bp) + BLK_HDR_SIZE);
+      blk_hdr_t *prev_bp = (blk_hdr_t *)((char *)bp - (((blk_hdr_t *)((char *)bp- BLK_HDR_SIZE))->size & ~1));
+      /* 4 cases now: we can extend on both, extend back or extend forward, or not extend at all */
+      size_t next_alloc = next_bp->size & 1,
+        prev_alloc = prev_bp->size & 1,
+        remaining;
+      if ((!next_alloc && !prev_alloc) && next_bp->size + prev_bp->size > need) {
+        /* both next and prev are free */
+        remaining = prev_bp->size + next_bp->size + (bp->size & ~1) - (size + HF_BLK_SIZE);
+
+        remove_from_list(prev_bp);
+        remove_from_list(next_bp);
+
+        void *new_ptr = (void *)((char *)prev_bp + BLK_HDR_SIZE);
+        memcpy(new_ptr, ptr, old_size - HF_BLK_SIZE);
+        prev_bp->size = (size + HF_BLK_SIZE) | 1;
+        get_footer(prev_bp)->size = prev_bp->size;
+        /* free bp */
+        bp = (blk_hdr_t *)((char *)prev_bp + (prev_bp->size & ~1));
+        bp->size = remaining & ~1L;
+        get_footer(bp)->size = bp->size;
+
+        add_to_list(bp);
+        return new_ptr;
+      } else if ((next_alloc && !prev_alloc) && prev_bp->size > need) {
+        /* only prev is free  */
+        remaining = prev_bp->size + (bp->size & ~1) - (size + HF_BLK_SIZE);
+
+        remove_from_list(prev_bp);
+
+        void *new_ptr = (void *)((char *)prev_bp + BLK_HDR_SIZE);
+        memcpy(new_ptr, ptr, old_size - HF_BLK_SIZE);
+        prev_bp->size = (size + HF_BLK_SIZE) | 1;
+        get_footer(prev_bp)->size = prev_bp->size;
+
+        bp = (blk_hdr_t *)((char *)prev_bp + (prev_bp->size & ~1));
+        bp->size = remaining & ~1L;
+        get_footer(bp)->size = bp->size;
+        /* add newly freed block to the free list */
+        add_to_list(bp);
+        return new_ptr;
+      } else if ((!next_alloc && prev_alloc) && next_bp->size > need) {
+
+        remaining = (bp->size & ~1) + next_bp->size - (size + HF_BLK_SIZE);
+
+        remove_from_list(next_bp);
+
+        bp->size = (size + HF_BLK_SIZE) | 1;
+        get_footer(bp)->size = bp->size;
+
+        next_bp = (blk_hdr_t *)((char *)bp + (bp->size & ~1));
+        next_bp->size = remaining & ~1L;
+        get_footer(next_bp)->size = next_bp->size;
+
+        add_to_list(next_bp);
+        return ptr;
+      } else {
+        /* free up the block and sbrk some more space */
+        int coefficient = 2;
+        size_t alloc_size = ALIGN(size * coefficient + HF_BLK_SIZE); 
+        void *new_ptr = mem_sbrk(alloc_size) + BLK_HDR_SIZE; 
+        memcpy(new_ptr, ptr, old_size - HF_BLK_SIZE); 
+
+        bp = (blk_hdr_t *)(new_ptr - BLK_HDR_SIZE);
+        bp->size = new_size | 1;
+        (get_footer(bp))->size = new_size | 1;
+
+        bp = (blk_hdr_t *)((char *)bp + new_size); 
+        bp->size = alloc_size - new_size;
+        (get_footer(bp))->size = alloc_size - new_size;
+        add_to_list(bp);
+        mm_free(ptr); 
+        return new_ptr;
+      }
+    }
+  }
 }
 
 
@@ -198,18 +292,15 @@ void add_to_list(blk_hdr_t *bp) {
  * coalesce - merge free blocks that are physically next to each other
  */
 void coalesce(blk_hdr_t *bp) {
-  // assuming that *bp, *next and *prev are all in the free list before we run this function
   blk_hdr_t *next = NULL,
     *prev = NULL,
     *footer = NULL;
 
   if (bp != mem_heap_hi() - bp->size + 1) {
-    next = (blk_hdr_t *)((char *)bp + (bp->size & ~1L)); // TODO: add epilogue block for this edge-case
+    next = (blk_hdr_t *)((char *)bp + (bp->size & ~1L));
   }
-
   blk_hdr_t *prev_footer = (blk_hdr_t *)((char *)bp - BLK_HDR_SIZE);
   prev = (blk_hdr_t *)((char *)bp - (prev_footer->size & ~1L));
-
   int next_alloc, prev_alloc;
 
   if (next) {
@@ -228,17 +319,17 @@ void coalesce(blk_hdr_t *bp) {
     return;
   } else if (prev_alloc && !next_alloc) {
     bp->size += next->size;
-    // get the footer of the next block and set its new size
+    /* get the footer of the next block and set its new size */
     footer = get_footer(bp);
     footer->size = bp->size;
-    // Remove next from ll
+    /* Remove next from link list */
     remove_from_list(bp);
     remove_from_list(next);
     add_to_list(bp);
     return;
   } else if (!prev_alloc && next_alloc) {
     prev->size += bp->size;
-    // get footer of prev and set it to its new size
+    /* get footer of prev and set it to its new size */
     footer = get_footer(prev);
     footer->size = prev->size;
     remove_from_list(bp);
@@ -246,12 +337,11 @@ void coalesce(blk_hdr_t *bp) {
     add_to_list(prev);
     return;
   } else {
-    // both next and prev are free
+    /* both next and prev are free */
     prev->size += (bp->size + next->size);
-    // and same footer deal again
     footer = get_footer(prev);
     footer->size = prev->size;
-    // remove next and bp from ll
+    /* remove next and bp from ll */
     remove_from_list(prev);
     remove_from_list(bp);
     remove_from_list(next);
