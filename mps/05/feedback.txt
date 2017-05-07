@@ -1,0 +1,404 @@
+
+# Malloc lab feedback
+
+Jump forward to Part 3 for score summary.
+
+## Part 1: Compilation
+
+gcc -Wall -Werror -g   -c -o mdriver.o mdriver.c
+gcc -Wall -Werror -g   -c -o mm.o mm.c
+gcc -Wall -Werror -g   -c -o memlib.o memlib.c
+gcc -Wall -Werror -g   -c -o fsecs.o fsecs.c
+gcc -Wall -Werror -g   -c -o fcyc.o fcyc.c
+gcc -Wall -Werror -g   -c -o clock.o clock.c
+gcc -Wall -Werror -g   -c -o ftimer.o ftimer.c
+gcc -Wall -Werror -g -o mdriver mdriver.o mm.o memlib.o fsecs.o fcyc.o clock.o ftimer.o
+
+
+## Part 2: Running the driver with the -g autograder option
+
+Using default tracefiles in /home/lee/classes/cs351/repos/mps/05//traces/
+Measuring performance with the interval timer.
+
+Results for mm malloc:
+trace  valid  util     ops      secs  Kops
+ 0       yes   97%    5694  0.000557 10228
+ 1       yes   96%    5848  0.000565 10341
+ 2       yes   97%    6648  0.000631 10539
+ 3       yes   98%    5380  0.000500 10756
+ 4       yes   97%   14400  0.001507  9557
+ 5       yes   88%    4800  0.000991  4842
+ 6       yes   85%    4800  0.001042  4607
+ 7       yes   49%   12000  0.000872 13755
+ 8       yes   36%   24000  0.001539 15598
+ 9       yes   99%   14401  0.001000 14401
+10       yes   48%   14401  0.000521 27646
+Total          81%  112372  0.009725 11555
+
+Perf index = 48 (util) + 40 (thru) = 88/100
+correct:11
+perfidx:88
+
+
+## Part 3: Score
+
+Correctness:  35  /  35 (correct traces = 11)
+Performance:  44  /  45 (performance index = 88)
+Style:            /   0
+
+Total:            /  80
+
+
+## Part 4: Original source file
+
+/*
+ * mm-naive.c - The fastest, least memory-efficient malloc package.
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <assert.h>
+#include <unistd.h>
+
+#include "mm.h"
+#include "memlib.h"
+
+/* single word (4) or double word (8) alignment */
+#define ALIGNMENT 8
+
+/* rounds up to the nearest multiple of ALIGNMENT */
+#define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
+#define BLK_HDR_SIZE (ALIGN(sizeof(blk_hdr_t)))
+#define NUM_SIZE 5
+#define PROLOGUE_SIZE BLK_HDR_SIZE * (NUM_SIZE + 2)
+
+/* header and footer block */
+#define HF_BLK_SIZE 2*BLK_HDR_SIZE
+
+typedef struct header blk_hdr_t;
+
+struct header {
+  size_t size;
+  blk_hdr_t *next;
+  blk_hdr_t *prev;
+};
+
+blk_hdr_t *find_fit(size_t size);
+blk_hdr_t *split(blk_hdr_t *bp, size_t size);
+blk_hdr_t *get_footer(blk_hdr_t *bp);
+void remove_from_list(blk_hdr_t *bp);
+void add_to_list(blk_hdr_t *bp);
+void coalesce(blk_hdr_t *bp);
+
+/*
+ * mm_init - initialize the malloc package.
+ */
+int mm_init(void)
+{
+  blk_hdr_t *prologue = mem_sbrk(PROLOGUE_SIZE);
+  prologue->size = (PROLOGUE_SIZE) | 1;
+  blk_hdr_t *prologue_footer = get_footer(prologue);
+  prologue->next = prologue;
+  prologue->prev = prologue;
+  prologue_footer->size = (PROLOGUE_SIZE) | 1;
+   /* fill the prologue block */
+  size_t min_class_size[] = { HF_BLK_SIZE,
+                              HF_BLK_SIZE+64,
+                              HF_BLK_SIZE+128,
+                              HF_BLK_SIZE+256,
+                              HF_BLK_SIZE+512 };
+  int i = 0;
+  blk_hdr_t *bp = (blk_hdr_t *)((char *)mem_heap_lo() + BLK_HDR_SIZE);
+  while (bp < prologue_footer) {
+    bp->next = bp;
+    bp->prev = bp;
+    bp->size = min_class_size[i++];
+    bp = (blk_hdr_t *)((char *)bp + BLK_HDR_SIZE);
+  }
+  return 0;
+}
+
+/*
+ * mm_malloc - Allocate a block by incrementing the brk pointer.
+ *     Always allocate a block whose size is a multiple of the alignment.
+ */
+void *mm_malloc(size_t size)
+{
+  int blksize = ALIGN(HF_BLK_SIZE + size);
+  blk_hdr_t *bp = find_fit(blksize);
+  if (bp == NULL) {
+    bp = mem_sbrk(blksize);
+    if ((long)bp == -1)
+      return NULL;
+    else {
+      bp->size = blksize | 1;
+      blk_hdr_t *bp_footer = get_footer(bp);
+      bp_footer->size = blksize | 1;
+    }
+  } else {
+    bp = split(bp, blksize);
+    remove_from_list(bp);
+  }
+  return (char *)bp + BLK_HDR_SIZE;
+}
+
+/*
+ * mm_free - Freeing a block does nothing.
+ */
+void mm_free(void *ptr)
+{
+  blk_hdr_t *bp = ptr - BLK_HDR_SIZE;
+  add_to_list(bp);
+  coalesce(bp);
+}
+
+/*
+ * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
+ */
+void *mm_realloc(void *ptr, size_t size)
+{
+  blk_hdr_t *bp = ptr - BLK_HDR_SIZE;
+  size_t old_size = bp->size & ~1L,
+    new_size = ALIGN(size + HF_BLK_SIZE),
+    need = new_size - old_size;
+
+  if (old_size > new_size) {
+    /* there's enough space */
+    return ptr;
+  } else {
+    if (bp == mem_heap_hi() - old_size + 1) {
+      /* if at the end of the heap, just grow the heap */
+      mem_sbrk(need);
+      bp->size = new_size | 1;
+      get_footer(bp)->size = new_size | 1;
+      return ptr;
+    } else {
+      /* if move to a bigger block go through free list, try to find the biggest block  */
+      blk_hdr_t *try_find_head = (blk_hdr_t *)mem_heap_lo() + NUM_SIZE, 
+        *try_find_bp;
+      for (try_find_bp = try_find_head->next;
+           try_find_bp != try_find_head && try_find_bp->size < size + HF_BLK_SIZE;
+           try_find_bp = try_find_bp->next);
+      if (try_find_bp != try_find_head) {
+
+        void *new_ptr = (void *)((char *)try_find_bp + BLK_HDR_SIZE);
+        memcpy(new_ptr, ptr, old_size - HF_BLK_SIZE);
+        add_to_list(bp);
+        remove_from_list(try_find_bp);
+        return new_ptr;
+      }
+      /* check if another free block with enough space */
+      blk_hdr_t *next_bp = (blk_hdr_t *)((char *)get_footer(bp) + BLK_HDR_SIZE);
+      blk_hdr_t *prev_bp = (blk_hdr_t *)((char *)bp - (((blk_hdr_t *)((char *)bp- BLK_HDR_SIZE))->size & ~1));
+      /* 4 cases now: we can extend on both, extend back or extend forward, or not extend at all */
+      size_t next_alloc = next_bp->size & 1,
+        prev_alloc = prev_bp->size & 1,
+        remaining;
+      if ((!next_alloc && !prev_alloc) && next_bp->size + prev_bp->size > need) {
+        /* both next and prev are free */
+        remaining = prev_bp->size + next_bp->size + (bp->size & ~1) - (size + HF_BLK_SIZE);
+
+        remove_from_list(prev_bp);
+        remove_from_list(next_bp);
+
+        void *new_ptr = (void *)((char *)prev_bp + BLK_HDR_SIZE);
+        memcpy(new_ptr, ptr, old_size - HF_BLK_SIZE);
+        prev_bp->size = (size + HF_BLK_SIZE) | 1;
+        get_footer(prev_bp)->size = prev_bp->size;
+        /* free bp */
+        bp = (blk_hdr_t *)((char *)prev_bp + (prev_bp->size & ~1));
+        bp->size = remaining & ~1L;
+        get_footer(bp)->size = bp->size;
+
+        add_to_list(bp);
+        return new_ptr;
+      } else if ((next_alloc && !prev_alloc) && prev_bp->size > need) {
+        /* only prev is free  */
+        remaining = prev_bp->size + (bp->size & ~1) - (size + HF_BLK_SIZE);
+
+        remove_from_list(prev_bp);
+
+        void *new_ptr = (void *)((char *)prev_bp + BLK_HDR_SIZE);
+        memcpy(new_ptr, ptr, old_size - HF_BLK_SIZE);
+        prev_bp->size = (size + HF_BLK_SIZE) | 1;
+        get_footer(prev_bp)->size = prev_bp->size;
+
+        bp = (blk_hdr_t *)((char *)prev_bp + (prev_bp->size & ~1));
+        bp->size = remaining & ~1L;
+        get_footer(bp)->size = bp->size;
+        /* add newly freed block to the free list */
+        add_to_list(bp);
+        return new_ptr;
+      } else if ((!next_alloc && prev_alloc) && next_bp->size > need) {
+
+        remaining = (bp->size & ~1) + next_bp->size - (size + HF_BLK_SIZE);
+
+        remove_from_list(next_bp);
+
+        bp->size = (size + HF_BLK_SIZE) | 1;
+        get_footer(bp)->size = bp->size;
+
+        next_bp = (blk_hdr_t *)((char *)bp + (bp->size & ~1));
+        next_bp->size = remaining & ~1L;
+        get_footer(next_bp)->size = next_bp->size;
+
+        add_to_list(next_bp);
+        return ptr;
+      } else {
+        /* free up the block and sbrk some more space */
+        int coefficient = 2;
+        size_t alloc_size = ALIGN(size * coefficient + HF_BLK_SIZE); 
+        void *new_ptr = mem_sbrk(alloc_size) + BLK_HDR_SIZE; 
+        memcpy(new_ptr, ptr, old_size - HF_BLK_SIZE); 
+
+        bp = (blk_hdr_t *)(new_ptr - BLK_HDR_SIZE);
+        bp->size = new_size | 1;
+        (get_footer(bp))->size = new_size | 1;
+
+        bp = (blk_hdr_t *)((char *)bp + new_size); 
+        bp->size = alloc_size - new_size;
+        (get_footer(bp))->size = alloc_size - new_size;
+        add_to_list(bp);
+        mm_free(ptr); 
+        return new_ptr;
+      }
+    }
+  }
+}
+
+
+blk_hdr_t *get_footer(blk_hdr_t *bp) {
+  return (blk_hdr_t *)((char *)bp + (bp->size & ~1L) - BLK_HDR_SIZE);
+}
+ 
+/* split - split a block into two if there is enough space */ 
+blk_hdr_t *split(blk_hdr_t *bp, size_t size) {
+  size_t remaining = bp->size - size;
+  blk_hdr_t *p;
+
+  if (remaining < ((blk_hdr_t *)((char *)mem_heap_lo() + BLK_HDR_SIZE))->size) {
+    return bp;
+  } else {
+    bp->size = size & ~1L; 
+    blk_hdr_t *footer_bp = get_footer(bp);
+    footer_bp->size = size & ~1L;
+    p = (blk_hdr_t *)((char *)bp + size);
+    p->size = remaining & ~1L;
+    blk_hdr_t *footer_p = get_footer(p);
+    footer_p->size = remaining & ~1L;  
+    /* insert new block into the list */
+    remove_from_list(bp);
+    add_to_list(bp);
+    add_to_list(p);
+    return bp;
+  }
+}
+
+ /* find_fit - tries to find an empty block from a correct free list based on its size */
+ blk_hdr_t *find_fit(size_t size)
+ {
+   blk_hdr_t *bp = mem_heap_lo(),
+     *footer = get_footer(bp),
+     *head = bp;
+
+   for (++head;
+        !((size > head->size && size < (head+1)->size) || head+1 == footer);
+        head++);
+
+   for (bp = head->next;
+        bp != head && bp->size < size;
+        bp = bp->next);
+
+   if (bp != head) {
+     return bp;
+   } else {
+      return NULL;
+   }
+}
+
+/* remove_from_list remove element from free list */
+ void remove_from_list(blk_hdr_t *bp) {
+   bp->size |= 1;
+   get_footer(bp)->size |= 1;
+   bp->prev->next = bp->next;
+   bp->next->prev = bp->prev;
+ }
+
+ /* add_to_list add element to a correct free list  */
+void add_to_list(blk_hdr_t *bp) {
+  blk_hdr_t *head = mem_heap_lo(),
+    *footer = get_footer(head);
+
+  bp->size &= ~1;
+  get_footer(bp)->size &= ~1;
+
+  for (++head; 
+       !((bp->size > head->size && bp->size < (head+1)->size) || head+1 == footer);
+       head++);
+
+  bp->next = head->next;
+  bp->prev = head;
+  head->next = head->next->prev = bp;
+}
+
+/*
+ * coalesce - merge free blocks that are physically next to each other
+ */
+void coalesce(blk_hdr_t *bp) {
+  blk_hdr_t *next = NULL,
+    *prev = NULL,
+    *footer = NULL;
+
+  if (bp != mem_heap_hi() - bp->size + 1) {
+    next = (blk_hdr_t *)((char *)bp + (bp->size & ~1L));
+  }
+  blk_hdr_t *prev_footer = (blk_hdr_t *)((char *)bp - BLK_HDR_SIZE);
+  prev = (blk_hdr_t *)((char *)bp - (prev_footer->size & ~1L));
+  int next_alloc, prev_alloc;
+
+  if (next) {
+    next_alloc = next->size & 1;
+  } else {
+    next_alloc = 1;
+  }
+
+  if (prev) {
+    prev_alloc = prev->size & 1;
+  } else {
+    prev_alloc = 1;
+  }
+
+  if (prev_alloc && next_alloc) {
+    return;
+  } else if (prev_alloc && !next_alloc) {
+    bp->size += next->size;
+    /* get the footer of the next block and set its new size */
+    footer = get_footer(bp);
+    footer->size = bp->size;
+    /* Remove next from link list */
+    remove_from_list(bp);
+    remove_from_list(next);
+    add_to_list(bp);
+    return;
+  } else if (!prev_alloc && next_alloc) {
+    prev->size += bp->size;
+    /* get footer of prev and set it to its new size */
+    footer = get_footer(prev);
+    footer->size = prev->size;
+    remove_from_list(bp);
+    remove_from_list(prev);
+    add_to_list(prev);
+    return;
+  } else {
+    /* both next and prev are free */
+    prev->size += (bp->size + next->size);
+    footer = get_footer(prev);
+    footer->size = prev->size;
+    /* remove next and bp from ll */
+    remove_from_list(prev);
+    remove_from_list(bp);
+    remove_from_list(next);
+    add_to_list(prev);
+    return;
+  }
+}
